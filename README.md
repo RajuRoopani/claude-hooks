@@ -16,15 +16,22 @@ Think of them like `git hooks`, but for every action Claude takes.
 
 ## Hooks
 
-### `block-icm` — Block access to ICM dashboard
+### `block-icm` — Block restricted services (ICM + Kusto)
 
-Prevents Claude from accessing Microsoft ICM dashboard (`icm.ad.msft.net`) across any tool:
+Prevents Claude from accessing restricted internal services across any tool:
 - `Bash` (curl, wget, open)
 - `WebFetch`
 - Browser / Playwright MCP tools
-- Any other tool whose input references ICM URLs
+- Any other tool whose input references a blocked endpoint
 
-Every blocked attempt is **audit logged** to `~/.claude/audit/icm-policy-violations.jsonl`.
+**Blocked policies (out of the box):**
+
+| Policy | Blocked endpoints |
+|---|---|
+| ICM Dashboard | `icm.ad.msft.net`, `icmdashboard.microsoft.com`, `icm.microsoft.com` |
+| Kusto / Azure Data Explorer | `*.kusto.windows.net`, `*.kustomfa.windows.net`, `*.kusto.azuresynapse.net` |
+
+Every blocked attempt is **audit logged** to `~/.claude/audit/policy-violations.jsonl`.
 
 ---
 
@@ -79,25 +86,34 @@ Full deployment guide: [.claude/hooks/DEPLOY.md](.claude/hooks/DEPLOY.md)
 ## Audit log
 
 ```jsonc
-// ~/.claude/audit/icm-policy-violations.jsonl
-{"timestamp":"2026-02-25T10:32:11Z","event":"icm_blocked","tool":"Bash","matched":"icm\\.ad\\.msft\\.net","session":"abc123","cwd":"/Users/eng/my-service"}
-{"timestamp":"2026-02-25T11:14:03Z","event":"icm_blocked","tool":"WebFetch","matched":"icm\\.ad\\.msft\\.net","session":"def456","cwd":"/Users/eng/payments"}
+// ~/.claude/audit/policy-violations.jsonl
+{"timestamp":"2026-02-25T10:32:11Z","event":"policy_blocked","policy":"ICM Dashboard","tool":"Bash","matched":"icm\\.ad\\.msft\\.net","session":"abc123","cwd":"/Users/eng/my-service"}
+{"timestamp":"2026-02-25T11:14:03Z","event":"policy_blocked","policy":"Kusto / Azure Data Explorer","tool":"WebFetch","matched":"\\.kusto\\.windows\\.net","session":"def456","cwd":"/Users/eng/payments"}
 ```
 
 Ship to your SIEM with a simple `tail -F` or fluentd config.
 
 ---
 
-## Adding more blocked domains
+## Adding more blocked policies
 
-Edit the `ICM_PATTERNS` array in [.claude/hooks/block-icm.sh](.claude/hooks/block-icm.sh):
+Edit the `POLICY_NAMES` and `POLICY_PATTERNS` arrays in [.claude/hooks/block-icm.sh](.claude/hooks/block-icm.sh). Indexes must match:
 
 ```bash
-ICM_PATTERNS=(
-  "icm\.ad\.msft\.net"
-  "your-blocked-tool\.company\.com"   # add here
+POLICY_NAMES=(
+  "ICM Dashboard"
+  "Kusto / Azure Data Explorer"
+  "My Internal Tool"                          # ← add name here
+)
+
+POLICY_PATTERNS=(
+  "icm\.ad\.msft\.net|icmdashboard\.microsoft\.com"
+  "\.kusto\.windows\.net|\.kusto\.azuresynapse\.net"
+  "my-internal-tool\.company\.com"            # ← add pattern here
 )
 ```
+
+Multiple patterns per policy are separated by `|` (standard ERE).
 
 ---
 

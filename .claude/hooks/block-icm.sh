@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# block-icm.sh — Org Policy: Block access to ICM dashboard
+# block-icm.sh — Org Policy: Block restricted tools & services
 # =============================================================================
 # Fires on PreToolUse for ALL tools.
-# Blocks any tool invocation that references icm.ad.msft.net in its input
+# Blocks any tool invocation that references a restricted endpoint in its input
 # (Bash commands, WebFetch URLs, browser/MCP tool params, etc.)
+#
+# Blocked policies:
+#   1. ICM Dashboard   — icm.ad.msft.net
+#   2. Kusto / ADX     — *.kusto.windows.net, *.kusto.azuresynapse.net
+#
+# To add a new policy: add an entry to POLICY_NAMES and POLICY_PATTERNS below.
 # =============================================================================
 
 set -euo pipefail
@@ -18,43 +24,57 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 CWD=$(echo "$INPUT" | jq -r '.cwd // ""')
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# --- Blocked patterns ---
-# Matches icm.ad.msft.net and common variations
-ICM_PATTERNS=(
-  "icm\.ad\.msft\.net"
-  "icmdashboard\.microsoft\.com"
-  "icm\.microsoft\.com"
+# =============================================================================
+# POLICY REGISTRY
+# POLICY_NAMES and POLICY_PATTERNS must have matching indexes.
+# Patterns are ERE (grep -E). Separate multiple patterns per policy with |
+# =============================================================================
+
+POLICY_NAMES=(
+  "ICM Dashboard"
+  "Kusto / Azure Data Explorer"
 )
 
-# --- Stringify the entire tool_input for scanning ---
+POLICY_PATTERNS=(
+  "icm\.ad\.msft\.net|icmdashboard\.microsoft\.com|icm\.microsoft\.com"
+  "\.kusto\.windows\.net|\.kustomfa\.windows\.net|\.kusto\.azuresynapse\.net|kustodb\.windows\.net"
+)
+
+# =============================================================================
+
+# --- Stringify the entire tool_input for scanning (case-insensitive) ---
 TOOL_INPUT_STR=$(echo "$INPUT" | jq -c '.tool_input // {}' | tr '[:upper:]' '[:lower:]')
 
-# --- Check each pattern ---
+# --- Check each policy ---
 BLOCKED=false
+MATCHED_POLICY=""
 MATCHED_PATTERN=""
 
-for pattern in "${ICM_PATTERNS[@]}"; do
+for i in "${!POLICY_NAMES[@]}"; do
+  pattern="${POLICY_PATTERNS[$i]}"
   if echo "$TOOL_INPUT_STR" | grep -qE "$pattern"; then
     BLOCKED=true
+    MATCHED_POLICY="${POLICY_NAMES[$i]}"
     MATCHED_PATTERN="$pattern"
     break
   fi
 done
 
-# --- If blocked: log + exit 2 to stop Claude ---
+# --- If blocked: audit log + hard stop ---
 if [ "$BLOCKED" = true ]; then
 
-  # Audit log (append-only, valid JSON via jq)
+  # Audit log (append-only, valid JSON)
   LOG_DIR="${HOME}/.claude/audit"
   mkdir -p "$LOG_DIR"
   jq -n \
-    --arg ts "$TIMESTAMP" \
-    --arg tool "$TOOL_NAME" \
-    --arg matched "$MATCHED_PATTERN" \
-    --arg session "$SESSION_ID" \
-    --arg cwd "$CWD" \
-    '{timestamp: $ts, event: "icm_blocked", tool: $tool, matched: $matched, session: $session, cwd: $cwd}' \
-    >> "$LOG_DIR/icm-policy-violations.jsonl"
+    --arg ts        "$TIMESTAMP" \
+    --arg tool      "$TOOL_NAME" \
+    --arg policy    "$MATCHED_POLICY" \
+    --arg matched   "$MATCHED_PATTERN" \
+    --arg session   "$SESSION_ID" \
+    --arg cwd       "$CWD" \
+    '{timestamp: $ts, event: "policy_blocked", policy: $policy, tool: $tool, matched: $matched, session: $session, cwd: $cwd}' \
+    >> "$LOG_DIR/policy-violations.jsonl"
 
   # Feedback to Claude (stderr → shown as Claude's blocker reason)
   cat >&2 <<EOF
@@ -64,16 +84,16 @@ if [ "$BLOCKED" = true ]; then
 ╚══════════════════════════════════════════════════════════════╝
 
 Tool attempted : $TOOL_NAME
-Blocked pattern: $MATCHED_PATTERN
-Policy         : ICM dashboard access is disabled for all Claude
+Blocked policy : $MATCHED_POLICY
+Policy         : Access to this service is disabled for all Claude
                  Code sessions across this organization.
 
 What to do instead:
-  • Use the approved incident management workflow in Confluence
-  • Contact your on-call lead for ICM escalation access
+  • Use the approved workflow for $MATCHED_POLICY in Confluence
+  • Contact your on-call lead for escalation access
   • Reach out to #engineering-ops in Slack for exceptions
 
-Violation logged to: ~/.claude/audit/icm-policy-violations.jsonl
+Violation logged to: ~/.claude/audit/policy-violations.jsonl
 
 EOF
 

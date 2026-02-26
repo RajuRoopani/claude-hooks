@@ -1,0 +1,19 @@
+{
+  "version": "2.0",
+  "_comment": "Set enabled:false or rename policy file to _0N-name.sh to disable. mode: block|audit",
+  "policies": {
+    "secrets":              { "enabled": true,  "mode": "block" },
+    "prod-protection":      { "enabled": true,  "mode": "block" },
+    "pii-guard":            { "enabled": true,  "mode": "block" },
+    "supply-chain":         { "enabled": true,  "mode": "audit" },
+    "git-protection":       { "enabled": true,  "mode": "block" },
+    "data-sources":         { "enabled": true,  "mode": "block" },
+    "rules-integrity":      { "enabled": true,  "mode": "audit" },
+    "cost-circuit-breaker": { "enabled": true,  "mode": "block" }
+  },
+  "auditLog": "~/.claude/audit/policy-violations.jsonl",
+  "contact": {
+    "slack":      "#engineering-ops",
+    "confluence": "https://your-org.atlassian.net/wiki/display/SECURITY/AI-Guardrails"
+  }
+}

